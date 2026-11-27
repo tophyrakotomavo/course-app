@@ -13,6 +13,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SMS from 'expo-sms';
 
 const KEY = 'courses_app_v1';
 
@@ -40,6 +41,31 @@ const totalOperations = (ops: Operation[], type: 'add' | 'deduct'): number =>
 
 const newId = (): string => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const buildSmsMessage = (rides: Ride[], operations: Operation[], total: number): string => {
+  const lines: string[] = [
+    'Bonjour, voici le r\u00e9capitulatif des courses effectu\u00e9es :',
+    '',
+  ];
+
+  [...rides]
+    .sort((a, b) => a.ts - b.ts)
+    .forEach((ride) => {
+      lines.push(
+        `- Course du ${fmtDay(dayKey(ride.ts))} \u00e0 ${fmtTime(ride.ts)} : ${fmtMoney(ride.amount)}`
+      );
+    });
+
+  [...operations]
+    .sort((a, b) => a.ts - b.ts)
+    .forEach((operation) => {
+      const sign = operation.type === 'add' ? '+' : '-';
+      lines.push(`- ${operation.description} : ${sign}${fmtMoney(operation.amount)}`);
+    });
+
+  lines.push('', `Total \u00e0 payer : ${fmtMoney(total)}`, '', 'Merci.');
+  return lines.join('\n');
+};
+
 const TODAY_KEY = dayKey(Date.now());
 
 type StatCardProps = {
@@ -55,6 +81,19 @@ function StatCard({ label, value, color, basis, wide }: StatCardProps): React.JS
     <View style={[s.card, { flexBasis: wide ? '100%' : basis }]}>
       <Text style={s.cardLabel}>{label}</Text>
       <Text style={[s.cardValue, color ? { color } : null]}>{value}</Text>
+    </View>
+  );
+}
+
+function SmsIcon(): React.JSX.Element {
+  return (
+    <View style={s.smsIcon}>
+      <View style={s.smsBubble}>
+        <View style={s.smsDot} />
+        <View style={s.smsDot} />
+        <View style={s.smsDot} />
+      </View>
+      <View style={s.smsTail} />
     </View>
   );
 }
@@ -191,6 +230,23 @@ export default function App(): React.JSX.Element {
   );
 
   const overallAPayer = grand.total + grand.additions - grand.deductions;
+
+  const shareBySms = async (): Promise<void> => {
+    if (grand.count === 0) return;
+    try {
+      const available = await SMS.isAvailableAsync();
+      if (!available) {
+        Alert.alert(
+          'SMS indisponible',
+          'Aucune application SMS n\u2019est disponible sur cet appareil.'
+        );
+        return;
+      }
+      await SMS.sendSMSAsync([], buildSmsMessage(rides, operations, overallAPayer));
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\u2019ouvrir l\u2019application SMS.');
+    }
+  };
 
   const netColor = (n: number): string => (n < 0 ? '#EF4444' : '#111827');
 
@@ -376,6 +432,13 @@ export default function App(): React.JSX.Element {
             />
           </View>
 
+          {grand.count > 0 ? (
+            <TouchableOpacity style={s.smsBtn} onPress={shareBySms} activeOpacity={0.8}>
+              <SmsIcon />
+              <Text style={s.smsBtnTxt}>Partager par SMS</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <Text style={s.sectionTitle}>Tantara isan&apos;andro</Text>
           {grandDays.length === 0 ? (
             <Text style={s.empty}>Tsy misy tantara.</Text>
@@ -441,6 +504,12 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, minWidth: 90, fontSize: 16 },
   bigBtn: { backgroundColor: '#16A34A', borderRadius: 16, paddingVertical: 22, alignItems: 'center' },
   bigBtnTxt: { color: '#fff', fontSize: 28, fontWeight: '800' },
+  smsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#111827', borderRadius: 16, paddingVertical: 14, marginBottom: 4 },
+  smsBtnTxt: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  smsIcon: { width: 24, height: 22, alignItems: 'center', justifyContent: 'center' },
+  smsBubble: { width: 22, height: 16, borderRadius: 5, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  smsDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#111827' },
+  smsTail: { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 5, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#fff', marginTop: -1, marginLeft: -10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginTop: 16, marginBottom: 8 },
   row: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowText: { flex: 1 },
