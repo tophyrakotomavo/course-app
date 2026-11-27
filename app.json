@@ -27,6 +27,12 @@
         "projectId": "7c0ab0c7-1e34-4303-b24e-be966f90bd77"
       }
     },
-    "owner": "zanaroots-team"
+    "owner": "zanaroots-team",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/7c0ab0c7-1e34-4303-b24e-be966f90bd77"
+    }
   }
 }
