@@ -11,6 +11,7 @@ import {
   Platform,
   ScrollView,
   useWindowDimensions,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SMS from 'expo-sms';
@@ -54,12 +55,12 @@ const dayKey = (ts: number): string => {
   return `${d.getFullYear()}-${m}-${j}`;
 };
 const fmtTime = (ts: number): string =>
-  new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const fmtDay = (key: string): string => {
   const [y, m, d] = key.split('-');
   return `${d}/${m}/${y}`;
 };
-const fmtDateTime = (ts: number): string => `${fmtDay(dayKey(ts))} \u00e0 ${fmtTime(ts)}`;
+const fmtDateTime = (ts: number): string => `${fmtDay(dayKey(ts))} at ${fmtTime(ts)}`;
 const fmtMoney = (n: number): string =>
   Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' Ar';
 
@@ -136,9 +137,9 @@ const normalizeStoredData = (data: StoredData): PaymentCycle[] => {
   return cycles;
 };
 
-const buildSmsMessage = (rides: Ride[], operations: Operation[], total: number): string => {
+const buildShareMessage = (rides: Ride[], operations: Operation[], total: number): string => {
   const lines: string[] = [
-    'Bonjour, voici le r\u00e9capitulatif des courses effectu\u00e9es :',
+    'Hello, here is the summary of completed rides:',
     '',
   ];
 
@@ -146,7 +147,7 @@ const buildSmsMessage = (rides: Ride[], operations: Operation[], total: number):
     .sort((a, b) => a.ts - b.ts)
     .forEach((ride) => {
       lines.push(
-        `- Course du ${fmtDay(dayKey(ride.ts))} \u00e0 ${fmtTime(ride.ts)} : ${fmtMoney(ride.amount)}`
+        `- Ride on ${fmtDay(dayKey(ride.ts))} at ${fmtTime(ride.ts)}: ${fmtMoney(ride.amount)}`
       );
     });
 
@@ -154,10 +155,10 @@ const buildSmsMessage = (rides: Ride[], operations: Operation[], total: number):
     .sort((a, b) => a.ts - b.ts)
     .forEach((operation) => {
       const sign = operation.type === 'add' ? '+' : '-';
-      lines.push(`- ${operation.description} : ${sign}${fmtMoney(operation.amount)}`);
+      lines.push(`- ${operation.description}: ${sign}${fmtMoney(operation.amount)}`);
     });
 
-  lines.push('', `Total \u00e0 payer : ${fmtMoney(total)}`, '', 'Merci.');
+  lines.push('', `Total to pay: ${fmtMoney(total)}`, '', 'Thank you.');
   return lines.join('\n');
 };
 
@@ -183,7 +184,7 @@ function StatusBadge({ status }: { status: CycleStatus }): React.JSX.Element {
   return (
     <View style={[s.badge, paid ? s.badgePaid : s.badgeActive]}>
       <Text style={[s.badgeTxt, paid ? s.badgeTxtPaid : s.badgeTxtActive]}>
-        {paid ? 'Pay\u00e9' : 'En cours'}
+        {paid ? 'Paid' : 'Active'}
       </Text>
     </View>
   );
@@ -202,18 +203,31 @@ function SmsIcon(): React.JSX.Element {
   );
 }
 
+function WhatsAppIcon(): React.JSX.Element {
+  return (
+    <View style={s.waIcon}>
+      <View style={s.waBubble}>
+        <View style={s.waPhone} />
+      </View>
+      <View style={s.waTail} />
+    </View>
+  );
+}
+
 type CycleHistoryCardProps = {
   cycle: PaymentCycle;
   expanded: boolean;
   onToggle: () => void;
-  onShare: () => void;
+  onShareSms: () => void;
+  onShareWhatsApp: () => void;
 };
 
 function CycleHistoryCard({
   cycle,
   expanded,
   onToggle,
-  onShare,
+  onShareSms,
+  onShareWhatsApp,
 }: CycleHistoryCardProps): React.JSX.Element {
   const totals = cycle.totals ?? computeTotals(cycle.rides, cycle.operations);
   const sortedRides = [...cycle.rides].sort((a, b) => b.ts - a.ts);
@@ -224,31 +238,31 @@ function CycleHistoryCard({
       <TouchableOpacity onPress={onToggle} activeOpacity={0.85}>
         <View style={s.dayTop}>
           <View style={s.cycleTitleWrap}>
-            <Text style={s.dayDate}>Cycle du {fmtDay(dayKey(cycle.startedAt))}</Text>
+            <Text style={s.dayDate}>Cycle of {fmtDay(dayKey(cycle.startedAt))}</Text>
             <Text style={s.cycleSub}>
-              Cl\u00f4tur\u00e9 le {fmtDateTime(cycle.closedAt ?? cycle.startedAt)}
+              Closed on {fmtDateTime(cycle.closedAt ?? cycle.startedAt)}
             </Text>
           </View>
           <StatusBadge status="paid" />
         </View>
         <View style={s.cycleTotalRow}>
-          <Text style={s.cycleTotalLabel}>Total \u00e0 payer</Text>
+          <Text style={s.cycleTotalLabel}>Total to pay</Text>
           <Text style={[s.cycleTotal, { color: cycle.totals.totalAPayer < 0 ? '#EF4444' : '#111827' }]}>
             {fmtMoney(totals.totalAPayer)}
           </Text>
         </View>
-        <Text style={s.cycleHint}>{expanded ? 'Masquer les d\u00e9tails' : 'Voir les d\u00e9tails'}</Text>
+        <Text style={s.cycleHint}>{expanded ? 'Hide details' : 'View details'}</Text>
       </TouchableOpacity>
 
       {expanded ? (
         <View style={s.cycleDetails}>
           <View style={s.dayStats}>
             <View style={s.dayStat}>
-              <Text style={s.dayStatLabel}>Course</Text>
+              <Text style={s.dayStatLabel}>Rides</Text>
               <Text style={s.dayStatValue}>{totals.count}</Text>
             </View>
             <View style={s.dayStat}>
-              <Text style={s.dayStatLabel}>Totaly</Text>
+              <Text style={s.dayStatLabel}>Total</Text>
               <Text style={s.dayStatValue}>{fmtMoney(totals.courseTotal)}</Text>
             </View>
             <View style={s.dayStat}>
@@ -265,14 +279,14 @@ function CycleHistoryCard({
             </View>
           </View>
 
-          <Text style={s.sectionTitle}>Course ({sortedRides.length})</Text>
+          <Text style={s.sectionTitle}>Rides ({sortedRides.length})</Text>
           {sortedRides.length === 0 ? (
-            <Text style={s.empty}>Tsy misy course.</Text>
+            <Text style={s.empty}>No rides.</Text>
           ) : (
             sortedRides.map((item) => (
               <View key={item.id} style={s.row}>
                 <Text style={s.rowMain}>
-                  Course · {fmtDay(dayKey(item.ts))} · {fmtTime(item.ts)}
+                  Ride · {fmtDay(dayKey(item.ts))} · {fmtTime(item.ts)}
                 </Text>
                 <Text style={s.rowAmount}>{fmtMoney(item.amount)}</Text>
               </View>
@@ -281,7 +295,7 @@ function CycleHistoryCard({
 
           <Text style={s.sectionTitle}>Operations ({sortedOperations.length})</Text>
           {sortedOperations.length === 0 ? (
-            <Text style={s.empty}>Tsy misy operation.</Text>
+            <Text style={s.empty}>No operations.</Text>
           ) : (
             sortedOperations.map((item) => (
               <View key={item.id} style={s.row}>
@@ -308,10 +322,20 @@ function CycleHistoryCard({
           )}
 
           {cycle.rides.length > 0 || cycle.operations.length > 0 ? (
-            <TouchableOpacity style={s.smsBtn} onPress={onShare} activeOpacity={0.8}>
-              <SmsIcon />
-              <Text style={s.smsBtnTxt}>Partager par SMS</Text>
-            </TouchableOpacity>
+            <View style={s.shareRow}>
+              <TouchableOpacity style={[s.shareBtn, s.smsBtn]} onPress={onShareSms} activeOpacity={0.8}>
+                <SmsIcon />
+                <Text style={s.shareBtnTxt}>SMS</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.shareBtn, s.whatsappBtn]}
+                onPress={onShareWhatsApp}
+                activeOpacity={0.8}
+              >
+                <WhatsAppIcon />
+                <Text style={s.shareBtnTxt}>WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
         </View>
       ) : null}
@@ -385,7 +409,7 @@ export default function App(): React.JSX.Element {
   const addRide = (): void => {
     const amount = parseInt(price, 10) || 0;
     if (amount <= 0) {
-      Alert.alert('Vidy diso', 'Ampidiro ny vidin\u2019ny course.');
+      Alert.alert('Invalid price', 'Enter the ride price.');
       return;
     }
     const ride: Ride = { id: newId(), ts: Date.now(), amount };
@@ -399,10 +423,10 @@ export default function App(): React.JSX.Element {
   };
 
   const removeRide = (id: string): void => {
-    Alert.alert('Hamafa ity course ity?', '', [
-      { text: 'Tsia', style: 'cancel' },
+    Alert.alert('Delete this ride?', '', [
+      { text: 'No', style: 'cancel' },
       {
-        text: 'Fafana',
+        text: 'Delete',
         style: 'destructive',
         onPress: () =>
           setCycles((prev) =>
@@ -419,7 +443,7 @@ export default function App(): React.JSX.Element {
   const addOperation = (): void => {
     const amount = parseInt(opAmount, 10) || 0;
     if (amount <= 0) {
-      Alert.alert('Vola diso', 'Ampidiro ny vola ho an\u2019ity operation ity.');
+      Alert.alert('Invalid amount', 'Enter the amount for this operation.');
       return;
     }
     const description = opDesc.trim() || (opType === 'add' ? 'Addition' : 'Deduction');
@@ -444,10 +468,10 @@ export default function App(): React.JSX.Element {
   };
 
   const removeOperation = (id: string): void => {
-    Alert.alert('Hamafa ity operation ity?', '', [
-      { text: 'Tsia', style: 'cancel' },
+    Alert.alert('Delete this operation?', '', [
+      { text: 'No', style: 'cancel' },
       {
-        text: 'Fafana',
+        text: 'Delete',
         style: 'destructive',
         onPress: () =>
           setCycles((prev) =>
@@ -468,20 +492,20 @@ export default function App(): React.JSX.Element {
     if (!activeCycle) return;
     if (activeRides.length === 0 && activeOperations.length === 0) {
       Alert.alert(
-        'Cycle vide',
-        'Tsy misy course na operation ao amin\u2019ny cycle ankehitriny.'
+        'Empty cycle',
+        'There are no rides or operations in the current cycle.'
       );
       return;
     }
 
     const totals = computeTotals(activeRides, activeOperations);
     Alert.alert(
-      'Marquer comme pay\u00e9 ?',
-      `Total \u00e0 payer : ${fmtMoney(totals.totalAPayer)}\n\nLe cycle sera cl\u00f4tur\u00e9 et archiv\u00e9. Un nouveau cycle \u00e0 0 Ar sera cr\u00e9\u00e9.`,
+      'Mark as paid?',
+      `Total to pay: ${fmtMoney(totals.totalAPayer)}\n\nThe cycle will be closed and archived. A new cycle at 0 Ar will be created.`,
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Confirmer',
+          text: 'Confirm',
           onPress: () => {
             const closedAt = Date.now();
             setCycles((prev) => {
@@ -500,8 +524,8 @@ export default function App(): React.JSX.Element {
             setExpandedCycleId(null);
             setTab('current');
             Alert.alert(
-              'Cycle cl\u00f4tur\u00e9',
-              'Le cycle a \u00e9t\u00e9 archiv\u00e9. Un nouveau cycle a commenc\u00e9 \u00e0 0 Ar.'
+              'Cycle closed',
+              'The cycle has been archived. A new cycle has started at 0 Ar.'
             );
           },
         },
@@ -516,14 +540,37 @@ export default function App(): React.JSX.Element {
       const available = await SMS.isAvailableAsync();
       if (!available) {
         Alert.alert(
-          'SMS indisponible',
-          'Aucune application SMS n\u2019est disponible sur cet appareil.'
+          'SMS unavailable',
+          'No SMS application is available on this device.'
         );
         return;
       }
-      await SMS.sendSMSAsync([], buildSmsMessage(cycle.rides, cycle.operations, totals.totalAPayer));
+      await SMS.sendSMSAsync([], buildShareMessage(cycle.rides, cycle.operations, totals.totalAPayer));
     } catch {
-      Alert.alert('Erreur', 'Impossible d\u2019ouvrir l\u2019application SMS.');
+      Alert.alert('Error', 'Unable to open the SMS application.');
+    }
+  };
+
+  const shareCycleByWhatsApp = async (cycle: PaymentCycle): Promise<void> => {
+    if (cycle.rides.length === 0 && cycle.operations.length === 0) return;
+    const totals = computeTotals(cycle.rides, cycle.operations);
+    const text = encodeURIComponent(
+      buildShareMessage(cycle.rides, cycle.operations, totals.totalAPayer)
+    );
+    try {
+      const nativeUrl = `whatsapp://send?text=${text}`;
+      if (await Linking.canOpenURL(nativeUrl)) {
+        await Linking.openURL(nativeUrl);
+        return;
+      }
+      const webUrl = `https://wa.me/?text=${text}`;
+      if (await Linking.canOpenURL(webUrl)) {
+        await Linking.openURL(webUrl);
+        return;
+      }
+      Alert.alert('WhatsApp unavailable', 'WhatsApp is not installed on this device.');
+    } catch {
+      Alert.alert('Error', 'Unable to open WhatsApp.');
     }
   };
 
@@ -537,7 +584,7 @@ export default function App(): React.JSX.Element {
       <View style={s.header}>
         <Text style={s.title}>Courses</Text>
         <View style={s.tabs}>
-          {([['current', 'Cycle'], ['history', 'Tantara']] as [Tab, string][]).map(([k, label]) => (
+          {([['current', 'Cycle'], ['history', 'History']] as [Tab, string][]).map(([k, label]) => (
             <TouchableOpacity key={k} onPress={() => setTab(k)} style={[s.tab, tab === k && s.tabOn]}>
               <Text style={[s.tabTxt, tab === k && s.tabTxtOn]}>{label}</Text>
             </TouchableOpacity>
@@ -555,16 +602,16 @@ export default function App(): React.JSX.Element {
           <View style={s.cycleHeader}>
             <View style={s.cycleHeaderText}>
               <Text style={s.date}>
-                Cycle du {activeCycle ? fmtDay(dayKey(activeCycle.startedAt)) : '--/--/----'}
+                Cycle of {activeCycle ? fmtDay(dayKey(activeCycle.startedAt)) : '--/--/----'}
               </Text>
-              <Text style={s.cycleSub}>Statut du cycle actuel</Text>
+              <Text style={s.cycleSub}>Current cycle status</Text>
             </View>
             <StatusBadge status="active" />
           </View>
 
           <View style={s.cards}>
-            <StatCard label="Isan'ny course" value={String(activeTotals.count)} basis={cardBasis} />
-            <StatCard label="Totaly" value={fmtMoney(activeTotals.courseTotal)} basis={cardBasis} />
+            <StatCard label="Rides" value={String(activeTotals.count)} basis={cardBasis} />
+            <StatCard label="Total" value={fmtMoney(activeTotals.courseTotal)} basis={cardBasis} />
             <StatCard
               label="Total additions"
               value={fmtMoney(activeTotals.additions)}
@@ -578,7 +625,7 @@ export default function App(): React.JSX.Element {
               basis={cardBasis}
             />
             <StatCard
-              label="Total \u00e0 payer"
+              label="Total to pay"
               value={fmtMoney(activeTotals.totalAPayer)}
               color={netColor(activeTotals.totalAPayer)}
               basis={cardBasis}
@@ -591,12 +638,12 @@ export default function App(): React.JSX.Element {
             onPress={closeActiveCycle}
             activeOpacity={0.8}
           >
-            <Text style={s.closeBtnTxt}>Marquer comme pay\u00e9</Text>
-            <Text style={s.closeBtnSub}>Cl\u00f4turer et commencer un nouveau cycle</Text>
+            <Text style={s.closeBtnTxt}>Mark as paid</Text>
+            <Text style={s.closeBtnSub}>Close and start a new cycle</Text>
           </TouchableOpacity>
 
           <View style={s.priceRow}>
-            <Text style={s.priceLabel}>Vidy isaky ny course:</Text>
+            <Text style={s.priceLabel}>Price per ride:</Text>
             <TextInput
               style={s.input}
               value={price}
@@ -609,7 +656,7 @@ export default function App(): React.JSX.Element {
           </View>
 
           <TouchableOpacity style={s.bigBtn} onPress={addRide} activeOpacity={0.8}>
-            <Text style={s.bigBtnTxt}>+ Course</Text>
+            <Text style={s.bigBtnTxt}>+ Ride</Text>
           </TouchableOpacity>
 
           <View style={s.opForm}>
@@ -626,7 +673,7 @@ export default function App(): React.JSX.Element {
                 style={s.opInput}
                 value={opAmount}
                 onChangeText={(t) => setOpAmount(t.replace(/[^0-9]/g, ''))}
-                placeholder="Vola (Ar)"
+                placeholder="Amount (Ar)"
                 placeholderTextColor="#6B7280"
                 keyboardType="numeric"
               />
@@ -650,14 +697,14 @@ export default function App(): React.JSX.Element {
             </TouchableOpacity>
           </View>
 
-          <Text style={s.sectionTitle}>Course ({sortedActiveRides.length})</Text>
+          <Text style={s.sectionTitle}>Rides ({sortedActiveRides.length})</Text>
           {sortedActiveRides.length === 0 ? (
-            <Text style={s.empty}>Mbola tsy misy course ao amin&apos;ity cycle ity.</Text>
+            <Text style={s.empty}>No rides in this cycle yet.</Text>
           ) : (
             sortedActiveRides.map((item) => (
               <View key={item.id} style={s.row}>
                 <Text style={s.rowMain}>
-                  Course · {fmtDay(dayKey(item.ts))} · {fmtTime(item.ts)}
+                  Ride · {fmtDay(dayKey(item.ts))} · {fmtTime(item.ts)}
                 </Text>
                 <Text style={s.rowAmount}>{fmtMoney(item.amount)}</Text>
                 <TouchableOpacity onPress={() => removeRide(item.id)} hitSlop={8}>
@@ -669,7 +716,7 @@ export default function App(): React.JSX.Element {
 
           <Text style={s.sectionTitle}>Operations ({sortedActiveOperations.length})</Text>
           {sortedActiveOperations.length === 0 ? (
-            <Text style={s.empty}>Mbola tsy misy operation ao amin&apos;ity cycle ity.</Text>
+            <Text style={s.empty}>No operations in this cycle yet.</Text>
           ) : (
             sortedActiveOperations.map((item) => (
               <View key={item.id} style={s.row}>
@@ -697,14 +744,24 @@ export default function App(): React.JSX.Element {
           )}
 
           {!activeIsEmpty ? (
-            <TouchableOpacity
-              style={s.smsBtn}
-              onPress={() => shareCycleBySms(activeCycle as PaymentCycle)}
-              activeOpacity={0.8}
-            >
-              <SmsIcon />
-              <Text style={s.smsBtnTxt}>Partager par SMS</Text>
-            </TouchableOpacity>
+            <View style={s.shareRow}>
+              <TouchableOpacity
+                style={[s.shareBtn, s.smsBtn]}
+                onPress={() => shareCycleBySms(activeCycle as PaymentCycle)}
+                activeOpacity={0.8}
+              >
+                <SmsIcon />
+                <Text style={s.shareBtnTxt}>SMS</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.shareBtn, s.whatsappBtn]}
+                onPress={() => shareCycleByWhatsApp(activeCycle as PaymentCycle)}
+                activeOpacity={0.8}
+              >
+                <WhatsAppIcon />
+                <Text style={s.shareBtnTxt}>WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
         </ScrollView>
       ) : (
@@ -713,9 +770,9 @@ export default function App(): React.JSX.Element {
           contentContainerStyle={s.content}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={s.sectionTitle}>Historique des paiements</Text>
+          <Text style={s.sectionTitle}>Payment history</Text>
           {closedCycles.length === 0 ? (
-            <Text style={s.empty}>Tsy mbola misy cycle vita.</Text>
+            <Text style={s.empty}>No completed cycles yet.</Text>
           ) : (
             closedCycles.map((cycle) => (
               <CycleHistoryCard
@@ -725,7 +782,8 @@ export default function App(): React.JSX.Element {
                 onToggle={() =>
                   setExpandedCycleId((current) => (current === cycle.id ? null : cycle.id))
                 }
-                onShare={() => shareCycleBySms(cycle)}
+                onShareSms={() => shareCycleBySms(cycle)}
+                onShareWhatsApp={() => shareCycleByWhatsApp(cycle)}
               />
             ))
           )}
@@ -770,12 +828,19 @@ const s = StyleSheet.create({
   input: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, minWidth: 90, fontSize: 16 },
   bigBtn: { backgroundColor: '#16A34A', borderRadius: 16, paddingVertical: 22, alignItems: 'center' },
   bigBtnTxt: { color: '#fff', fontSize: 28, fontWeight: '800' },
-  smsBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#111827', borderRadius: 16, paddingVertical: 14, marginTop: 16 },
-  smsBtnTxt: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  shareRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  shareBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 16, paddingVertical: 14 },
+  shareBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  smsBtn: { backgroundColor: '#111827' },
+  whatsappBtn: { backgroundColor: '#25D366' },
   smsIcon: { width: 24, height: 22, alignItems: 'center', justifyContent: 'center' },
   smsBubble: { width: 22, height: 16, borderRadius: 5, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
   smsDot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#111827' },
   smsTail: { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 5, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#fff', marginTop: -1, marginLeft: -10 },
+  waIcon: { width: 24, height: 22, alignItems: 'center', justifyContent: 'center' },
+  waBubble: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  waPhone: { width: 8, height: 8, borderRadius: 4, borderWidth: 2, borderColor: '#fff' },
+  waTail: { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 5, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#fff', marginTop: -2, marginLeft: -8 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginTop: 16, marginBottom: 8 },
   row: { backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowText: { flex: 1 },
